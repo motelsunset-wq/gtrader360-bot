@@ -41,20 +41,25 @@ def ask_openai(prompt: str) -> str:
     if not OPENAI_API_KEY:
         log.error("OPENAI_API_KEY is missing")
         return "Ошибка: отсутствует OPENAI_API_KEY."
+
     client = OpenAI(api_key=OPENAI_API_KEY)
     try:
         resp = client.chat.completions.create(
             model=OPENAI_MODEL,
             messages=[
-                {"role": "system", "content": "Отвечай кратко, структурировано и без воды."},
+                {"role": "system", "content": "Отвечай только чистым текстом, без упоминания ChatGPT, без системных фраз."},
                 {"role": "user", "content": prompt},
             ],
             temperature=0.2,
         )
-        return resp.choices[0].message.content.strip()
+        # Чистим возможные лишние упоминания
+        text = resp.choices[0].message.content.strip()
+        text = text.replace("ChatGPT", "").replace("chatgpt", "").replace("GPT", "")
+        return text.strip()
     except Exception as e:
         log.exception("OpenAI error")
         return f"Ошибка при обращении к OpenAI: {e}"
+
 
 async def job_send_report(context: ContextTypes.DEFAULT_TYPE) -> None:
     log.info("Generating daily report via OpenAI...")
