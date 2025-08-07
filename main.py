@@ -1,4 +1,3 @@
-
 import os
 import logging
 from datetime import time
@@ -15,7 +14,7 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHANNEL   = os.getenv("TELEGRAM_CHANNEL")  # e.g. @gtrader360coil
 OPENAI_API_KEY     = os.getenv("OPENAI_API_KEY")
 OPENAI_MODEL       = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-SCHEDULE_TZ        = os.getenv("SCHEDULE_TZ", "Asia/Dubai")  # UTC+4
+SCHEDULE_TZ        = os.getenv("SCHEDULE_TZ", "Asia/Dubai")  # можно переопределить на Asia/Jerusalem
 SCHEDULE_HOUR      = int(os.getenv("SCHEDULE_HOUR", "9"))
 SCHEDULE_MINUTE    = int(os.getenv("SCHEDULE_MINUTE", "0"))
 STATIC_PROMPT      = os.getenv("STATIC_PROMPT", "").strip()
@@ -47,25 +46,30 @@ def ask_openai(prompt: str) -> str:
         resp = client.chat.completions.create(
             model=OPENAI_MODEL,
             messages=[
-                {"role": "system", "content": "Отвечай только чистым текстом, без упоминания ChatGPT, без системных фраз."},
+                {
+                    "role": "system",
+                    "content": (
+                        "Отвечай только чистым текстом, без упоминаний ChatGPT/GPT, "
+                        "без вводных и заключительных фраз, без дисклеймеров. "
+                        "Структурируй по делу, без воды."
+                    ),
+                },
                 {"role": "user", "content": prompt},
             ],
             temperature=0.2,
         )
-        # Чистим возможные лишние упоминания
-        text = resp.choices[0].message.content.strip()
-        text = text.replace("ChatGPT", "").replace("chatgpt", "").replace("GPT", "")
-        return text.strip()
+        text = resp.choices[0].message.content or ""
+        # Доп. зачистка возможных упоминаний
+        for bad in ["ChatGPT", "chatgpt", "GPT", "gpt"]:
+            text = text.replace(bad, "")
+        return text.strip() or "Пустой ответ от модели."
     except Exception as e:
         log.exception("OpenAI error")
         return f"Ошибка при обращении к OpenAI: {e}"
 
-
 async def job_send_report(context: ContextTypes.DEFAULT_TYPE) -> None:
     log.info("Generating daily report via OpenAI...")
     text = ask_openai(STATIC_PROMPT)
-    if not text:
-        text = "Пустой ответ от модели."
     try:
         await context.bot.send_message(
             chat_id=TELEGRAM_CHANNEL,
@@ -73,12 +77,13 @@ async def job_send_report(context: ContextTypes.DEFAULT_TYPE) -> None:
             disable_web_page_preview=True,
         )
         log.info("Report posted to %s", TELEGRAM_CHANNEL)
-    except Exception as e:
+    except Exception:
         log.exception("Failed to post to Telegram")
 
 async def on_startup(app: Application) -> None:
     tz = ZoneInfo(SCHEDULE_TZ)
     run_time = time(hour=SCHEDULE_HOUR, minute=SCHEDULE_MINUTE, tzinfo=tz)
+    # Требует зависимость python-telegram-bot[job-queue]
     app.job_queue.run_daily(job_send_report, run_time, name="daily_gtrader360")
     log.info("Job scheduled daily at %02d:%02d (%s)", SCHEDULE_HOUR, SCHEDULE_MINUTE, SCHEDULE_TZ)
 
